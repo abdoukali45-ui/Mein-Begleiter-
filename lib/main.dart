@@ -1,9 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'package:permission_handler/permission_handler.dart';
 
 void main() {
   runApp(const MeinBegleiterApp());
 }
 
+/// Root widget of the "Mein Begleiter" app.
+///
+/// V0.2: real Speech-to-Text listening is wired up. Still missing: a real
+/// AI response (Claude API) and Text-to-Speech output. See README.md.
 class MeinBegleiterApp extends StatelessWidget {
   const MeinBegleiterApp({super.key});
 
@@ -14,7 +20,7 @@ class MeinBegleiterApp extends StatelessWidget {
       title: 'Mein Begleiter',
       theme: ThemeData(
         useMaterial3: true,
-        fontFamily: 'sans',
+        colorSchemeSeed: Colors.teal,
         textTheme: const TextTheme(
           bodyLarge: TextStyle(fontSize: 20),
           bodyMedium: TextStyle(fontSize: 18),
@@ -67,7 +73,7 @@ class HomePage extends StatelessWidget {
                 label: const Padding(
                   padding: EdgeInsets.symmetric(vertical: 22),
                   child: Text(
-                    'Mit mir sprechen',
+                    'Gespräch beginnen',
                     style: TextStyle(fontSize: 25),
                   ),
                 ),
@@ -102,6 +108,7 @@ class HomePage extends StatelessWidget {
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 14),
               ),
+              const SizedBox(height: 8),
             ],
           ),
         ),
@@ -118,7 +125,83 @@ class ConversationPage extends StatefulWidget {
 }
 
 class _ConversationPageState extends State<ConversationPage> {
+  final stt.SpeechToText _speech = stt.SpeechToText();
+  bool _speechReady = false;
   bool listening = false;
+  String recognizedText = '';
+  String statusMessage = 'Hallo! Wie geht es dir heute?';
+
+  @override
+  void initState() {
+    super.initState();
+    _initSpeech();
+  }
+
+  Future<void> _initSpeech() async {
+    final micStatus = await Permission.microphone.request();
+    if (!micStatus.isGranted) {
+      setState(() {
+        statusMessage = 'Bitte erlaube den Mikrofon-Zugriff in den Einstellungen.';
+      });
+      return;
+    }
+    _speechReady = await _speech.initialize(
+      onStatus: (status) {
+        if (status == 'notListening' && listening) {
+          setState(() => listening = false);
+        }
+      },
+      onError: (error) {
+        setState(() {
+          listening = false;
+          statusMessage = 'Es gab ein Problem beim Zuhören. Versuch es noch einmal.';
+        });
+      },
+    );
+    setState(() {});
+  }
+
+  Future<void> _toggleListening() async {
+    if (!_speechReady) {
+      await _initSpeech();
+      if (!_speechReady) return;
+    }
+
+    if (listening) {
+      await _speech.stop();
+      setState(() => listening = false);
+      return;
+    }
+
+    setState(() {
+      listening = true;
+      recognizedText = '';
+      statusMessage = 'Ich höre dir zu ...';
+    });
+
+    await _speech.listen(
+      localeId: 'de_DE',
+      onResult: (result) {
+        setState(() {
+          recognizedText = result.recognizedWords;
+          if (result.finalResult) {
+            listening = false;
+            statusMessage = recognizedText.isEmpty
+                ? 'Ich habe nichts verstanden. Versuch es noch einmal.'
+                : 'Du hast gesagt: „$recognizedText“';
+            // Nächster Schritt: recognizedText an die KI (Claude API) senden
+            // und die Antwort per Text-to-Speech vorlesen.
+          }
+        });
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _speech.stop();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -154,18 +237,14 @@ class _ConversationPageState extends State<ConversationPage> {
                   border: Border.all(),
                 ),
                 child: Text(
-                  listening
-                      ? 'Ich höre dir zu ...'
-                      : 'Hallo! Wie geht es dir heute?',
+                  statusMessage,
                   textAlign: TextAlign.center,
                   style: const TextStyle(fontSize: 22),
                 ),
               ),
               const Spacer(),
               GestureDetector(
-                onTap: () {
-                  setState(() => listening = !listening);
-                },
+                onTap: _toggleListening,
                 child: CircleAvatar(
                   radius: 55,
                   child: Icon(
