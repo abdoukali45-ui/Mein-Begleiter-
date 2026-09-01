@@ -1,6 +1,4 @@
 # 🗣️ Mein Begleiter
-
-
 > Ein Sprach-Begleiter-Prototyp für ältere Menschen.
 
 ## Erste Schritte
